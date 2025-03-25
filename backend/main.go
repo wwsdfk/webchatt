@@ -1,11 +1,12 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"sync"
+
+	"chat-app/database"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -25,7 +26,7 @@ var clients = make(map[*Client]bool)
 var broadcast = make(chan Message)
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Разрешаем подключение откуда угодно
+		return true
 	},
 }
 
@@ -34,16 +35,15 @@ var mutex = &sync.Mutex{}
 func handleConnections(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("Ошибка при обновлении соединения:", err)
+		log.Printf("Ошибка при обновлении соединения: %v\n", err)
 		return
 	}
 	defer conn.Close()
 
-	// Получаем имя пользователя при подключении
 	var initMsg Message
 	err = conn.ReadJSON(&initMsg)
 	if err != nil {
-		log.Println("Ошибка получения имени:", err)
+		log.Printf("Ошибка получения имени: %v\n", err)
 		return
 	}
 
@@ -52,18 +52,23 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	clients[client] = true
 	mutex.Unlock()
 
-	// Чтение сообщений
 	for {
 		var msg Message
 		err := conn.ReadJSON(&msg)
 		if err != nil {
-			log.Println("Ошибка чтения JSON:", err)
+			log.Printf("Ошибка чтения JSON: %v\n", err)
 			mutex.Lock()
 			delete(clients, client)
 			mutex.Unlock()
 			break
 		}
-		msg.Name = client.name // Добавляем имя в сообщение
+		msg.Name = client.name
+
+		_, err = database.DB.Exec(r.Context(), "INSERT INTO messages (name, content) VALUES ($1, $2)", msg.Name, msg.Content)
+		if err != nil {
+			log.Printf("Ошибка сохранения в базу данных: %v\n", err)
+		}
+
 		broadcast <- msg
 	}
 }
@@ -71,19 +76,11 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 func handleMessages() {
 	for {
 		msg := <-broadcast
-
-		// Сохраняем сообщение в БД
-		_, err := db.Exec(context.Background(), "INSERT INTO messages (name, content) VALUES ($1, $2)", msg.Name, msg.Content)
-		if err != nil {
-			log.Println("Ошибка сохранения сообщения в БД:", err)
-			continue
-		}
-
 		mutex.Lock()
 		for client := range clients {
 			err := client.conn.WriteJSON(msg)
 			if err != nil {
-				log.Println("Ошибка отправки JSON:", err)
+				log.Printf("Ошибка отправки JSON: %v\n", err)
 				client.conn.Close()
 				delete(clients, client)
 			}
@@ -100,12 +97,13 @@ func setupRoutes() {
 
 func main() {
 	fmt.Println("Сервер запущен на порту :8083")
-
-	initDB() // Подключение к БД
+	err := database.InitDB()
+	if err != nil {
+		log.Fatalf("Ошибка инициализации базы данных: %v", err)
+	}
+	defer database.DB.Close()
 
 	setupRoutes()
-
 	go handleMessages()
-
 	log.Fatal(http.ListenAndServe(":8083", nil))
 }
