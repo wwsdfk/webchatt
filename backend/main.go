@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -70,6 +71,14 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 func handleMessages() {
 	for {
 		msg := <-broadcast
+
+		// Сохраняем сообщение в БД
+		_, err := db.Exec(context.Background(), "INSERT INTO messages (name, content) VALUES ($1, $2)", msg.Name, msg.Content)
+		if err != nil {
+			log.Println("Ошибка сохранения сообщения в БД:", err)
+			continue
+		}
+
 		mutex.Lock()
 		for client := range clients {
 			err := client.conn.WriteJSON(msg)
@@ -91,8 +100,12 @@ func setupRoutes() {
 
 func main() {
 	fmt.Println("Сервер запущен на порту :8083")
+
+	initDB() // Подключение к БД
+
 	setupRoutes()
 
 	go handleMessages()
+
 	log.Fatal(http.ListenAndServe(":8083", nil))
 }
