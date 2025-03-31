@@ -32,20 +32,24 @@ func InitDB() error {
 	}
 
 	if err = DB.Ping(ctx); err != nil {
+		DB.Close()
 		return fmt.Errorf("ошибка пинга базы данных: %w", err)
 	}
 
 	log.Println("Успешное подключение к базе данных")
 
 	_, err = DB.Exec(ctx, `
-                CREATE TABLE IF NOT EXISTS messages (
-                        id SERIAL PRIMARY KEY,
-                        name VARCHAR(255),
-                        content TEXT
-                )
-        `)
+		CREATE TABLE IF NOT EXISTS messages (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			content TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
 	if err != nil {
+		DB.Close()
 		return fmt.Errorf("ошибка создания таблицы: %w", err)
 	}
+
 	return nil
 }

@@ -9,30 +9,28 @@ export default function Chat({ nickname }) {
 		if (!nickname) return
 
 		const socket = new WebSocket('ws://localhost:8083/ws')
+		setWs(socket)
 
 		socket.onopen = () => {
 			console.log('WebSocket открыт')
 			const welcomeMsg = { name: nickname, content: 'подключился к чату' }
 			socket.send(JSON.stringify(welcomeMsg))
-			setMessages(prev => [
-				...prev,
-				`${welcomeMsg.name}: ${welcomeMsg.content}`,
-			])
 		}
 
 		socket.onmessage = event => {
 			console.log('Получено сообщение:', event.data)
 			const msg = JSON.parse(event.data)
-			setMessages(prev => [...prev, `${msg.name}: ${msg.content}`])
+			setMessages(prev => [...prev, msg])
 		}
 
 		socket.onerror = error => {
 			console.error('Ошибка WebSocket:', error)
 		}
 
-		setWs(socket)
-
-		return () => socket.close()
+		return () => {
+			socket.onmessage = null
+			socket.close()
+		}
 	}, [nickname])
 
 	const sendMessage = () => {
@@ -51,12 +49,12 @@ export default function Chat({ nickname }) {
 						<div
 							key={index}
 							className={`p-2 my-1 rounded-md ${
-								msg.startsWith(nickname)
+								msg.name === nickname
 									? 'bg-blue-100 text-blue-700 text-right'
 									: 'bg-gray-200 text-gray-700'
 							}`}
 						>
-							{msg}
+							<strong>{msg.name}:</strong> {msg.content}
 						</div>
 					))}
 				</div>
